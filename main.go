@@ -41,7 +41,8 @@ func init() {
 func main() {
 	flag.Parse()
 
-	if len(os.Args) < 2{
+	if len(os.Args) < 2 {
+		fmt.Println("Error: No arguments provided.")
 		printUsage()
 		return
 	}
