@@ -6,7 +6,7 @@ import (
 )
 
 func TestEncryptDecrypt(t *testing.T) {
-	key := []byte("thisisatestkeyoflength1234561111")
+	password := "testpassword123"
 	input := "hello world!"
 
 	err := os.WriteFile("hello_world.txt", []byte(input), 0644)
@@ -16,13 +16,13 @@ func TestEncryptDecrypt(t *testing.T) {
 
 	defer os.Remove("hello_world.txt")
 
-	encryptErr := encryptFile(key, "hello_world.txt", "encrypted.bin")
+	encryptErr := encryptFile(password, "hello_world.txt", "encrypted.bin")
 	if encryptErr != nil {
 		t.Fatalf("failed to encrypt test file: %v", encryptErr)
 	}
 	defer os.Remove("encrypted.bin")
 
-	decryptErr := decryptFile(key, "encrypted.bin", "decrypted_hello_world.txt")
+	decryptErr := decryptFile(password, "encrypted.bin", "decrypted_hello_world.txt")
 	if decryptErr != nil {
 		t.Fatalf("failed to decrypt test file: %v", decryptErr)
 	}

@@ -4,11 +4,14 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var (
@@ -16,7 +19,7 @@ var (
 	decrypt    bool
 	inputPath  string
 	outputPath string
-	inputKey   string
+	password   string
 )
 
 func init() {
@@ -25,14 +28,14 @@ func init() {
 	flag.BoolVar(&decrypt, "decrypt", false, "Decrypt the file with a given password.")
 	flag.StringVar(&inputPath, "input", "", "Input file path.")
 	flag.StringVar(&outputPath, "output", "", "Output file path.")
-	flag.StringVar(&inputKey, "key", "", "Encryption/Decryption key. Must be 16, 24, or 32 bytes.")
+	flag.StringVar(&password, "password", "", "Password for encryption/decryption.")
 
 	// Shorthand flags
 	flag.BoolVar(&encrypt, "e", false, "Shorthand for -encrypt.")
 	flag.BoolVar(&decrypt, "d", false, "Shorthand for -decrypt.")
 	flag.StringVar(&inputPath, "i", "", "Shorthand for -input.")
 	flag.StringVar(&outputPath, "o", "", "Shorthand for -output.")
-	flag.StringVar(&inputKey, "k", "", "Shorthand for -key.")
+	flag.StringVar(&password, "p", "", "Shorthand for -password.")
 }
 
 func main() {
@@ -50,8 +53,8 @@ func main() {
 	if encrypt && decrypt {
 		log.Fatal("Error: You cannot use -encrypt (-e) and -decrypt (-d) simultaneously.")
 	}
-	if inputPath == "" || outputPath == "" || inputKey == "" {
-		log.Fatal("Error: -input (-i), -output (-o), and -key (-k) flags must be provided.")
+	if inputPath == "" || outputPath == "" || password == "" {
+		log.Fatal("Error: -input (-i), -output (-o), and -password (-p) flags must be provided.")
 	}
 
 	// check filesize
@@ -60,21 +63,15 @@ func main() {
 		log.Fatalf("Error: %v", err)
 	}
 
-	// Validate key length
-	key := []byte(inputKey)
-	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
-		log.Fatal("Error: Key length must be 16, 24, or 32 bytes.")
-	}
-
 	// Perform encryption or decryption
 	if encrypt {
-		err := encryptFile(key, inputPath, outputPath)
+		err := encryptFile(password, inputPath, outputPath)
 		if err != nil {
 			log.Fatalf("Error encrypting file: %v\n", err)
 		}
 		fmt.Println("File encrypted successfully.")
 	} else if decrypt {
-		err := decryptFile(key, inputPath, outputPath)
+		err := decryptFile(password, inputPath, outputPath)
 		if err != nil {
 			log.Fatalf("Error decrypting file: %v\n", err)
 		}
@@ -82,12 +79,26 @@ func main() {
 	}
 }
 
+// deriveKey derives a 32-byte key from password using PBKDF2
+func deriveKey(password string, salt []byte) []byte {
+	return pbkdf2.Key([]byte(password), salt, 100000, 32, sha256.New)
+}
+
 // encryptFile encrypts a file and writes the output to another file.
-func encryptFile(key []byte, inputFilepath, outputFilepath string) error {
+func encryptFile(password, inputFilepath, outputFilepath string) error {
 	inputData, err := readFile(inputFilepath)
 	if err != nil {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
+
+	// Generate random salt
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	// Derive key from password
+	key := deriveKey(password, salt)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -105,15 +116,29 @@ func encryptFile(key []byte, inputFilepath, outputFilepath string) error {
 	}
 
 	cipherText := gcm.Seal(nonce, nonce, inputData, nil)
-	return writeFile(outputFilepath, cipherText)
+	
+	// Prepend salt to the encrypted data
+	result := append(salt, cipherText...)
+	return writeFile(outputFilepath, result)
 }
 
 // decryptFile decrypts a file and writes the output to another file.
-func decryptFile(key []byte, inputFilepath, outputFilepath string) error {
+func decryptFile(password, inputFilepath, outputFilepath string) error {
 	inputData, err := readFile(inputFilepath)
 	if err != nil {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
+
+	// Extract salt from the beginning of the file
+	if len(inputData) < 16 {
+		return errors.New("encrypted file is too short to contain salt")
+	}
+	
+	salt := inputData[:16]
+	encryptedData := inputData[16:]
+
+	// Derive key from password using the salt
+	key := deriveKey(password, salt)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -126,11 +151,11 @@ func decryptFile(key []byte, inputFilepath, outputFilepath string) error {
 	}
 
 	nonceSize := gcm.NonceSize()
-	if len(inputData) < nonceSize {
+	if len(encryptedData) < nonceSize {
 		return errors.New("ciphertext is too short")
 	}
 
-	nonce, cipherText := inputData[:nonceSize], inputData[nonceSize:]
+	nonce, cipherText := encryptedData[:nonceSize], encryptedData[nonceSize:]
 	plainText, err := gcm.Open(nil, nonce, cipherText, nil)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
@@ -158,14 +183,14 @@ Usage:
 -decrypt, -d   Decrypt the file with a given key.
 -input, -i     Input file path.
 -output, -o    Output file path.
--key, -k       Encryption/Decryption key (16, 24, or 32 bytes).
+-password, -p  Password for encryption/decryption.
 
 Examples:
   Encrypt a file:
-    ./app -e -i input.txt -o output.enc -k mysecretkey12345678
+    ./app -e -i input.txt -o output.enc -p mypassword
 
   Decrypt a file:
-    ./app -d -i output.enc -o decrypted.txt -k mysecretkey12345678
+    ./app -d -i output.enc -o decrypted.txt -p mypassword
 	`)
 }
 
