@@ -20,6 +20,7 @@ var (
 	inputPath  string
 	outputPath string
 	password   string
+	maxSize    int64
 )
 
 func init() {
@@ -29,6 +30,7 @@ func init() {
 	flag.StringVar(&inputPath, "input", "", "Input file path.")
 	flag.StringVar(&outputPath, "output", "", "Output file path.")
 	flag.StringVar(&password, "password", "", "Password for encryption/decryption.")
+	flag.Int64Var(&maxSize, "maxsize", 100, "Maximum file size in MB (default: 100).")
 
 	// Shorthand flags
 	flag.BoolVar(&encrypt, "e", false, "Shorthand for -encrypt.")
@@ -36,6 +38,7 @@ func init() {
 	flag.StringVar(&inputPath, "i", "", "Shorthand for -input.")
 	flag.StringVar(&outputPath, "o", "", "Shorthand for -output.")
 	flag.StringVar(&password, "p", "", "Shorthand for -password.")
+	flag.Int64Var(&maxSize, "m", 100, "Shorthand for -maxsize.")
 }
 
 func main() {
@@ -59,7 +62,7 @@ func main() {
 	}
 
 	// check filesize
-	err := validateFileSize(inputPath, 100) // this can be modified as needed
+	err := validateFileSize(inputPath, maxSize)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -185,10 +188,14 @@ Usage:
 -input, -i     Input file path.
 -output, -o    Output file path.
 -password, -p  Password for encryption/decryption.
+-maxsize, -m   Maximum file size in MB (default: 100).
 
 Examples:
   Encrypt a file:
     ./app -e -i input.txt -o output.enc -p mypassword
+
+  Encrypt a large file with custom size limit:
+    ./app -e -i largefile.txt -o output.enc -p mypassword -m 500
 
   Decrypt a file:
     ./app -d -i output.enc -o decrypted.txt -p mypassword
